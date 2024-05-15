@@ -1,0 +1,107 @@
+## PacBio MAS-Seq/Kinnex scRNA-seq data processing pipeline
+
+# Sqanti3 QC, Filter and rescue
+
+# Sample wildcards
+IDS, = glob_wildcards("../data/{id}.bam")
+
+# Define local variable to adjust rule parameters globally
+# Number of worker cores for general jobs excluding mapping and memory intensive tasks
+general_job_j = 64
+
+# Final outputs for the pipeline
+rule all:
+    input:
+        expand("../collapse/{id}.collapsed.gtf", id=IDS),
+        expand("../sqanti3_filter/rules/{id}.filtered.gtf", id=IDS),
+        expand("../sqanti3_filter/ml/{id}.filtered.gtf", id=IDS),
+
+# Prepare input for Sqanti3 QC - Convert collapsed GFF to GTF
+rule gff2gtf:
+    input:
+        gff = "../collapse/{id}.collapsed.gff"
+    output:
+        gtf = "../collapse/{id}.collapsed.gtf"
+    conda: "gffread_conda.yaml"
+    benchmark: "../benchmarks/{id}_gff2gtf.benchmark"
+    params:
+        log = "../logs/{id}_gff2gtf.log",
+    shell:
+        '''
+        gffread {input.gff} -T -o {output.gtf} 2> {params.log}
+        '''
+
+# Perform classification and quality control on collapsed transcripts
+rule sqanti3_qc:
+    input:
+        gtf = "../collapse/{id}.collapsed.gtf"
+    output:
+        classification = "../sqanti3_qc/{id}_classification.txt"
+    conda: "sqanti3_conda.yaml"
+    benchmark: "../benchmarks/{id}_sqanti3_qc.benchmark"
+    params:
+        log = "../logs/{id}_sqanti3_qc.log",
+        t = general_job_j,
+        cage_peak = "../ref/hg38_liftover_CAGE_peaks_phase1and2.sorted.bed",
+        polyA_motif = "../ref/polyA.list.txt",
+        d = "../sqanti3_qc",
+        o = "{id}",
+        ref_anno = "../ref/gencode.v45.primary_assembly.annotation.gtf",
+        ref_seq = "../ref/GRCh38.p14.genome.fa",
+    shell:
+        '''
+        python sqanti3-5.2.1/sqanti3_qc.py -t {params.t} \
+        --CAGE_peak {params.cage_peak} \
+        --polyA_motif_list {params.polyA_motif} \
+        -d {params.d} \
+        -o {params.o} \
+        {input.gtf} \
+        {params.ref_anno} \
+        {params.ref_seq} 2> {params.log}
+        '''
+    
+# Filter transcripts to reduce false positives - SQANTI3 FILTER RULES
+# ADD MORE INFO ABOUT RULES RUN MODE
+rule sqanti3_filter_rules:
+    input:
+        classification = "../sqanti3_qc/{id}_classification.txt"
+    output:
+        filtered = "../sqanti3_filter/rules/{id}.filtered.gtf"
+    conda: "sqanti3_conda.yaml"
+    benchmark: "../benchmarks/{id}_sqanti3_filter_rules.benchmark"
+    params:
+        log = "../logs/{id}_sqanti3_filter_rules.log",
+        gtf = "../sqanti3_qc/{id}_corrected.gtf",
+        d = "../sqanti3_filter/rules",
+        o = "{id}",
+    shell:
+        '''
+        python sqanti3-5.2.1/sqanti3_filter.py rules \
+        --gtf {params.gtf} \
+        -d {params.d} \
+        -o {params.o} \
+        {input.classification} 2> {params.log}
+        '''
+
+# Filter transcripts to reduce false positives - SQANTI3 FILTER ML
+# ADD MORE INFO ABOUT ML RUN MODE
+rule sqanti3_filter_ml:
+    input:
+        classification = "../sqanti3_qc/{id}_classification.txt"
+    output:
+        filtered = "../sqanti3_filter/ml/{id}.filtered.gtf"
+    conda: "sqanti3_conda.yaml"
+    benchmark: "../benchmarks/{id}_sqanti3_filter_ml.benchmark"
+    params:
+        log = "../logs/{id}_sqanti3_filter_ml.log",
+        gtf = "../sqanti3_qc/{id}_corrected.gtf",
+        d = "../sqanti3_filter/ml",
+        o = "{id}",
+    shell:
+        '''
+        python sqanti3-5.2.1/sqanti3_filter.py ml \
+        --gtf {params.gtf} \
+        -d {params.d} \
+        -o {params.o} \
+        {input.classification} 2> {params.log}
+        '''

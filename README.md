@@ -1,0 +1,7 @@
+## scISO-Seq data processing pipline
+
+This pipeline can be utilised to process single-cell PacBio long-read RNA-seq data generated with Kinnex (MAS-Seq) libraries. It can be used as a modular pipeline; the first sankefile `code/1.snakefile` follows a standard and recommended PacBio ISO-Seq pipeline. However, `code/2.snakefile_sqanti3` provides alternative methods to classify and filter full length transcripts prior to quantification. The outputs then can be used for further downstream analysis with `Seurat` or `Scanpy` for instance.
+
+### Notes
+
+Current directory structure should be preserved on your local environment to ensure correct execution of this pipeline. In summary, `code/snakefile` contains the workflow script. All required conda environment config files are also stored in `code/*.yaml` directory. Raw sequencing data (i.e., initial input to the workflow) should be stored in `data/` directory. Snakemake will take `data/*.bam` as wildcards therefore, rename samples appropriately in `data/` directory if original sample names are uninformative or too long (e.g., `565ytur74.bam` -> `pbmc_3s.bam`). Additional supplementary input files such as sequences for primers and barcodes are stored in `misc/` directory. Please refer to `code/snakefile` for adjusting project specific parameters in utilised tools.

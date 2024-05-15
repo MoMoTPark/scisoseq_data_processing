@@ -1,0 +1,15 @@
+name: gffread
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - _libgcc_mutex=0.1=conda_forge
+  - _openmp_mutex=4.5=2_gnu
+  - gffread=0.12.7=hdcf5f25_4
+  - libgcc-ng=13.2.0=h77fa898_7
+  - libgomp=13.2.0=h77fa898_7
+  - libstdcxx-ng=13.2.0=hc0a3c3a_7
+  - libzlib=1.2.13=hd590300_5
+  - zlib=1.2.13=hd590300_5
+prefix: /data/rajewsky/home/mzardba/miniconda3/envs/gffread

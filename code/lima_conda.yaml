@@ -1,0 +1,8 @@
+name: lima
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - lima=2.9.0=h9ee0642_1
+prefix: /data/rajewsky/home/mzardba/miniconda3/envs/lima

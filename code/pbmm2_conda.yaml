@@ -5,4 +5,3 @@ channels:
   - defaults
 dependencies:
   - pbmm2=1.13.1=h9ee0642_0
-prefix: /data/rajewsky/home/mzardba/miniconda3/envs/pbmm2

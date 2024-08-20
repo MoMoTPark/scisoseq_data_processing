@@ -1,0 +1,119 @@
+{
+    "full-splice_match": [
+        {
+            "exons":[1,2],
+            "perc_A_downstream_TTS":[0,59]
+        },
+        {
+            "exons":3,
+            "perc_A_downstream_TTS":[0,99]
+        },
+        {
+            "FL":3
+        }
+    ],
+    "incomplete-splice_match": [
+        {
+            "exons":[1,2],
+            "FL":4,
+            "perc_A_downstream_TTS":[0,59]
+        },
+        {
+            "exons":3,
+            "perc_A_downstream_TTS":[0,99]
+        },
+        {
+            "FL":5
+        }
+    ],
+    "novel_in_catalog": [
+        {
+            "exons":[1,1],
+            "perc_A_downstream_TTS":[0,59],
+            "FL":10
+        },
+        {
+            "subcategory":"mono-exon_by_intron_retention",
+            "coding":"coding",
+            "perc_A_downstream_TTS":[0,59],
+            "FL":50
+        },
+        {
+            "subcategory":["combination_of_known_splicesites", "combination_of_known_junctions", "intron_retention"],
+            "perc_A_downstream_TTS":[0,85]
+        },
+        {
+            "subcategory":["combination_of_known_splicesites", "combination_of_known_junctions", "intron_retention"],
+            "FL":3
+        }
+    ],
+    "novel_not_in_catalog": [
+        {
+            "exons":[1,1],
+            "perc_A_downstream_TTS":[0,59]
+        },
+        {
+            "subcategory":["at_least_one_novel_splicesite","intron_retention"],
+            "perc_A_downstream_TTS":[0,85],
+            "FL":1,
+            "all_canonical":"canonical",
+            "exons":3
+        },
+        {
+            "subcategory":["at_least_one_novel_splicesite","intron_retention"],
+            "perc_A_downstream_TTS":[0,85],
+            "FL":1,
+            "coding":"coding",
+            "exons":3
+        },
+        {
+            "diff_to_gene_TTS":1500,
+            "exons":2,
+            "perc_A_downstream_TTS":[0,85]
+        },
+        {
+            "FL":4,
+            "exons":2
+        }
+    ],
+    "genic": [
+        {
+            "chrom":"chrM",
+            "exons":[1,2],            
+            "coding":"coding"
+        },
+        {
+            "chrom":"chrM",
+            "FL":2
+        },
+        {
+            "FL":5
+        }
+    ],
+    "intergenic": [
+        {
+            "perc_A_downstream_TTS":[0,59],
+            "subcategory":"mono-exon",
+            "length":[200,5500]
+        },
+        {
+            "perc_A_downstream_TTS":[0,59],
+            "exons":2
+        },
+        {
+            "perc_A_downstream_TTS":[0,85],
+            "FL":3
+        }
+    ],
+    "rest": [
+        {
+            "perc_A_downstream_TTS":[0,59],
+            "all_canonical":"canonical",
+            "exons":2
+        },
+        {
+            "perc_A_downstream_TTS":[0,85],
+            "FL":2
+        }
+     ]
+}

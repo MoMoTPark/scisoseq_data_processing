@@ -401,4 +401,3 @@ dependencies:
       - tzdata==2024.1
       - ultra-bioinformatics==0.1
       - zipp==3.18.1
-prefix: /fast/users/mzardba_m/work/miniconda3/envs/sqanti3

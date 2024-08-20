@@ -5,4 +5,3 @@ channels:
   - defaults
 dependencies:
   - pbskera=1.2.0=hdfd78af_0
-prefix: /data/rajewsky/home/mzardba/miniconda3/envs/pbskera

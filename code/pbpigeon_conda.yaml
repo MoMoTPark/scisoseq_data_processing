@@ -10,4 +10,3 @@ dependencies:
   - libgomp=13.2.0=hc881cc4_6
   - libstdcxx-ng=13.2.0=h95c4c6d_6
   - pbpigeon=1.2.0=h4ac6f70_0
-prefix: /data/rajewsky/home/mzardba/miniconda3/envs/pbpigeon

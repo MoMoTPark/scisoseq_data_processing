@@ -12,4 +12,3 @@ dependencies:
   - libstdcxx-ng=13.2.0=hc0a3c3a_7
   - libzlib=1.2.13=hd590300_5
   - zlib=1.2.13=hd590300_5
-prefix: /data/rajewsky/home/mzardba/miniconda3/envs/gffread

@@ -1,0 +1,78 @@
+## PacBio MAS-Seq/Kinnex scRNA-seq data processing pipeline
+# Author: Moe
+# PART 5 - QC and stats
+
+# Workflow description:
+# gen_arti_output: generate kiy information to perform QC on filtered artifacts including generating plots
+# gen_arti_gtf: generate a gtf that only contains artifacts
+# bamstats: generate mapping stats (read length plot important)
+
+# Sample wildcards
+IDS, = glob_wildcards("../data/{id}.bam")
+
+rule all:
+    input:
+        expand("../sqanti3_filter/rules/{id}/{id}.artifacts.sorted.gtf.gz.tbi", id=IDS),
+        expand("../pbmm2/{id}_bamstats_plots/{id}.dedup.mapped.cell.stats.txt", id=IDS),
+
+
+# Generate artifact related outputs including:
+# - Added read count column to filtering reasons file
+# - Generate a statcked bar plot with the number of reads associated to each structural category
+# - Generate a text file with artifact isoform names
+rule gen_arti_output:
+    input:
+        reasons = "../sqanti3_filter/rules/{id}/{id}_filtering_reasons.txt",
+        abund = "../collapse/{id}.collapsed.abundance.txt"
+    output:
+        reasons_count = "../sqanti3_filter/rules/{id}/{id}_filtering_reasons_counts.txt",
+        stacked_bar = "../sqanti3_filter/rules/{id}/{id}_artifact_read_count_stacked_bar.png",
+        artifact_names = "../sqanti3_filter/rules/{id}/{id}_artifact_tx_names.txt"
+    conda: "python_conda.yaml"
+    benchmark: "../benchmarks/{id}_gen_arti_output.benchmark"
+    params:
+        log = "../logs/{id}_gen_arti_output.log",
+        wld = "{id}",
+    shell:
+        '''
+        ./arti_read_count.py {input.reasons} {input.abund} {params.wld} {output.reasons_count}
+        '''
+
+# Generate a gtf with only artifact isoforms
+rule gen_arti_gtf:
+    input:
+        artifact_names = "../sqanti3_filter/rules/{id}/{id}_artifact_tx_names.txt",
+        gtf = "../sqanti3_qc/{id}/{id}_corrected.gtf"
+    output:
+        final_gtf = "../sqanti3_filter/rules/{id}/{id}.artifacts.sorted.gtf.gz.tbi"
+    conda: "samtools_conda.yaml"
+    benchmark: "../benchmarks/{id}_gen_arti_gtf.benchmark"
+    params:
+        log = "../logs/{id}_gen_arti_gtf.log",
+        artifact_gtf = "../sqanti3_filter/rules/{id}/{id}.artifacts.gtf",
+        sorted_gtf = "../sqanti3_filter/rules/{id}/{id}.artifacts.sorted.gtf",
+        bgzip_gtf = "../sqanti3_filter/rules/{id}/{id}.artifacts.sorted.gtf.gz"
+    shell:
+        '''
+        grep -w -F -f {input.artifact_names} {input.gtf} > {params.artifact_gtf};
+        sort -k1,1 -k4,4n {params.artifact_gtf} > {params.sorted_gtf};
+        bgzip {params.sorted_gtf};
+        tabix {params.bgzip_gtf}
+        '''
+
+# Generate bamstats
+rule bamstats:
+    input:
+        cell = "../pbmm2/{id}.dedup.mapped.cell.bam"
+    output:
+        stats = "../pbmm2/{id}_bamstats_plots/{id}.dedup.mapped.cell.stats.txt"
+    conda: "samtools_conda.yaml"
+    benchmark: "../benchmarks/{id}_bamstats.benchmark"
+    log: "../logs/{id}_bamstats.log"
+    params:
+        prefix = "../pbmm2/{id}_bamstats_plots/{id}.dedup.mapped.cell"
+    shell:
+        '''
+        samtools stats -@ 16 {input} > {output};
+        plot-bamstats -p {params.prefix} {output} 2> {log}
+        '''

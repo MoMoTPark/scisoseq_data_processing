@@ -1,0 +1,85 @@
+## PacBio MAS-Seq/Kinnex scRNA-seq data processing pipeline
+# Author: Moe
+# PART 4 - Short-read mapping and quantification
+
+# Workflow description:
+
+# Sample wildcards
+IDS, = glob_wildcards("../short_read_data/{id}_R1.fastq.gz")
+
+# Define local variable to adjust rule parameters globally
+# Number of worker cores for general jobs excluding mapping and memory intensive tasks
+general_job_j = 64
+
+# Final outputs for the pipeline
+rule all:
+    input:
+        expand("../star_mapped_short_reads/{id}/{id}.SJ.out.tab", id=IDS),
+        expand("../kallisto/{id}_quant/abundance.tsv", id=IDS),
+
+# Map reads with STAR
+rule star_map:
+    input:
+        read_1 = "../short_read_data/{id}_R1.fastq.gz",
+        read_2 = "../short_read_data/{id}_R2.fastq.gz"
+    output:
+        mapped = "../star_mapped_short_reads/{id}/{id}.SJ.out.tab"
+    conda: "star_conda.yaml"
+    log: "../logs/{id}_star_map.log"
+    benchmark: "../benchmarks/{id}_star_map.benchmark"
+    params:
+        j = general_job_j,
+        genome_dir = "../ref/star_index",
+        out_prefix = "../star_mapped_short_reads/{id}/{id}.",
+    shell:
+        '''
+        STAR --runThreadN {params.j} --genomeDir {params.genome_dir} \
+        --readFilesIn {input.read_1} {input.read_2} \
+        --readFilesCommand gunzip -c \
+        --outFileNamePrefix {params.out_prefix} \
+        --alignSJoverhangMin 8 \
+        --alignSJDBoverhangMin 1 --outFilterType BySJout \
+        --outSAMunmapped Within \
+        --outFilterMultimapNmax 20 \
+        --outFilterMismatchNoverLmax 0.04 \
+        --outFilterMismatchNmax 999 --alignIntronMin 20 \
+        --alignIntronMax 1000000 --alignMatesGapMax 1000000 \
+        --sjdbScore 1 --genomeLoad NoSharedMemory \
+        --outSAMtype BAM SortedByCoordinate --twopassMode Basic 2> {log}
+        '''
+
+# index reads with Kallisto
+rule kallisto_index:
+    input:
+        corrected_fasta = "../sqanti3_qc/{id}/{id}_corrected.fasta"
+    output:
+        index = "../kallisto/{id}_kallisto.idx"
+    conda: "kallisto_conda.yaml"
+    log: "../logs/{id}_kallisto_index.log"
+    benchmark: "../benchmarks/{id}_kallisto_index.benchmark"
+    params:
+        j = general_job_j
+    shell:
+        '''
+        kallisto index -i {output.index} -t {params.j} {input.corrected_fasta} 2> {log}
+        '''
+
+# Quantify reads with Kallisto
+rule kallisto_quant:
+    input:
+        index = "../kallisto/{id}_kallisto.idx"
+    output:
+        quant = "../kallisto/{id}_quant/abundance.tsv"
+    conda: "kallisto_conda.yaml"
+    log: "../logs/{id}_kallisto_quant.log"
+    benchmark: "../benchmarks/{id}_kallisto_quant.benchmark"
+    params:
+        j = general_job_j,
+        read_1 = "../short_read_data/{id}_R1.fastq.gz",
+        read_2 = "../short_read_data/{id}_R2.fastq.gz",
+        outdir = "../kallisto/{id}_quant"
+    shell:
+        '''
+        kallisto quant -i {input.index} -o {params.outdir} \
+        -b 100 -t {params.j} {params.read_1} {params.read_2} 
+        '''

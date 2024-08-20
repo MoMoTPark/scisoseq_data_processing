@@ -1,0 +1,168 @@
+## PacBio MAS-Seq/Kinnex scRNA-seq data processing pipeline
+# Author: Moe
+# PART 4 - Pigeon
+
+# Workflow description:
+# pigeon_prepare: prepare input files for pigeon to classify and filter transcripts
+# pigeon_classify: classification of transcripts into SQANTI3 defined categories
+# pigeon_filter: filter transcripts to reduce false positives
+# pigeon_report: prepare a report for classification and filtering steps
+# make_seurat: create a barcode-feature matrix compatible with Seurat as input
+
+# Sample wildcards
+IDS, = glob_wildcards("../data/{id}.bam")
+
+# Define local variable to adjust rule parameters globally
+# Number of worker cores for general jobs excluding mapping and memory intensive tasks
+general_job_j = 64
+
+# TODO: ADD AS CONFIG PARAMETERS INSTEAD
+# Human genome reference sequence
+ref_fa = "../ref/GRCh38.primary_assembly.genome.fa"
+# Human Gencode V46 annotation
+anno_gtf = "../ref/gencode.v46.primary_assembly.annotation.sorted.gtf"
+
+# Human TSS sites
+# tss = "../ref/refTSS_v4.1_human_coordinate.hg38.bed"
+tss = "../ref/hg38_liftover_CAGE_peaks_phase1and2.sorted.bed"
+
+# Human Exon-exon junctions
+ee_junctions = "../ref/intropolis.v1.hg19_with_liftover_to_hg38.min_count_10.sorted.tsv"
+
+# Human and mouse polyA motif list
+polya_motif = "../ref/polyA.list.txt"
+
+# Final outputs for the pipeline
+rule all:
+    input:
+        expand("../pigeon_report/{id}_pigeon_report.txt", id=IDS),
+        expand("../seurat/{id}_pigeon/{id}.info.csv", id=IDS),
+
+# Alternative workflow (4.snakefile_sqanti3): Sqanti3 QC, Filter, Rescue
+# Sort collapse output gff
+rule pigeon_prepare:
+    input:
+        collapsed = "../collapse/{id}.collapsed.gff"
+    output:
+        sorted = "../collapse/{id}.collapsed.sorted.gff"
+    conda: "pbpigeon_conda.yaml"
+    benchmark: "../benchmarks/{id}_pigeon_prepare.benchmark"
+    params:
+        log = "../logs/{id}_pigeon_prepare.log",
+        log_level = "TRACE",
+    shell:
+        '''
+        pigeon prepare --log-file {params.log} \
+        --log-level {params.log_level} \
+        {input.collapsed}
+        '''
+
+# Classify transcripts into categories: https://isoseq.how/classification/categories
+rule pigeon_classify:
+    input:
+        sorted = "../collapse/{id}.collapsed.sorted.gff"
+    output:
+        classification = "../classify/{id}_classification.txt"
+    conda: "pbpigeon_conda.yaml"
+    benchmark: "../benchmarks/{id}_pigeon_classify.benchmark"
+    params:
+        log = "../logs/{id}_pigeon_classify.log",
+        log_level = "TRACE",
+        j = general_job_j,
+        out_dir = "../classify",
+        prefix = "{id}",
+        anno = anno_gtf,
+        ref = ref_fa,
+        polyA = polya_motif,
+        cage_peaks = tss,
+        coverage = ee_junctions,
+        fl_counts = "../collapse/{id}.collapsed.abundance.txt",
+    shell:
+        '''
+        pigeon classify -j {params.j} \
+        --log-file {params.log} \
+        --log-level {params.log_level} \
+        -d {params.out_dir} \
+        -o {params.prefix} \
+        --cage-peak {params.cage_peaks} \
+        --poly-a {params.polyA} \
+        --coverage {params.coverage} \
+        --flnc {params.fl_counts} \
+        --gene-id \
+        {input.sorted} \
+        {params.anno} \
+        {params.ref}
+        '''
+
+
+# Filter classified transcripts
+rule pigeon_filter:
+    input:
+        classification = "../classify/{id}_classification.txt"
+    output:
+        filtered = "../classify/{id}_classification.filtered_lite_classification.txt"
+    conda: "pbpigeon_conda.yaml"
+    benchmark: "../benchmarks/{id}_pigeon_filter.benchmark"
+    params:
+        log = "../logs/{id}_pigeon_filter.log",
+        log_level = "TRACE",
+        j = general_job_j,
+        i = "../collapse/{id}.collapsed.sorted.gff"
+    shell:
+        '''
+        pigeon filter -j {params.j} \
+        --log-file {params.log} \
+        --log-level {params.log_level} \
+        -i {params.i} \
+        {input.classification}
+        '''
+
+# Generate report from filtered transcripts output
+rule pigeon_report:
+    input:
+        filtered = "../classify/{id}_classification.filtered_lite_classification.txt"
+    output:
+        report = "../pigeon_report/{id}_pigeon_report.txt"
+    conda: "pbpigeon_conda.yaml"
+    benchmark: "../benchmarks/{id}_pigeon_report.benchmark"
+    params:
+        log = "../logs/{id}_pigeon_report.log",
+        log_level = "TRACE",
+        j = general_job_j,
+    shell:
+        '''
+        pigeon report -j {params.j} \
+        --log-file {params.log} \
+        --log-level {params.log_level} \
+        {input.filtered} \
+        {output.report}
+        '''
+
+# Generate a downstream Seurat input matrix
+rule make_seurat:
+    input:
+        filtered = "../classify/{id}_classification.filtered_lite_classification.txt"
+    output:
+        seurat = "../seurat/{id}_pigeon/{id}.info.csv"
+    conda: "pbpigeon_conda.yaml"
+    benchmark: "../benchmarks/{id}_make_seurat.benchmark"
+    params:
+        log = "../logs/{id}_make_seurat.log",
+        log_level = "TRACE",
+        j = general_job_j,
+        # CHECK
+        dedup = "../dedup/{id}.fltncc.sorted.dedup.fasta",
+        group = "../collapse/{id}.collapsed.group.txt",
+        out_prefix = "{id}",
+        out_dir = "../seurat/{id}_pigeon",
+    shell:
+        '''
+        pigeon make-seurat -j {params.j} \
+        --log-file {params.log} \
+        --log-level {params.log_level} \
+        --dedup {params.dedup} \
+        --group {params.group} \
+        -o {params.out_prefix} \
+        -d {params.out_dir} \
+        {input.filtered}
+        '''

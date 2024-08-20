@@ -1,0 +1,293 @@
+## PacBio MAS-Seq/Kinnex scRNA-seq data processing pipeline
+# Author: Moe
+# PART 4 - SQANTI3
+
+# ********************* UNDER DEVELOPMENT ********************* 
+# Workflow description:
+# gff2gtf: convert gff to gtf format for SQANTI3 pipeline compatibility
+# sqanti3_qc: perform qc and classify transcripts
+# sqanti3_filter_rules: filter transcripts based on the rule-based method
+# sqanti3_filter_ml: filter transcripts based on the machine learning method
+# Rescue
+
+# Sample wildcards
+IDS, = glob_wildcards("../data/{id}.bam")
+
+# Define local variable to adjust rule parameters globally
+# Number of worker cores for general jobs excluding mapping and memory intensive tasks
+general_job_j = 112
+
+# TODO: ADD AS CONFIG PARAMETERS INSTEAD
+# Human genome reference sequence
+ref_fa = "../ref/GRCh38.primary_assembly.genome.fa"
+# Human Gencode V46 annotation
+anno_gtf = "../ref/gencode.v46.primary_assembly.annotation.sorted.gtf"
+
+# Final outputs for the pipeline
+rule all:
+    input:
+        expand("../collapse/{id}.collapsed.gtf", id=IDS),
+        expand("../sqanti3_qc_with_sr/{id}/{id}_classification.txt", id=IDS),
+        expand("../sqanti3_filter/rules_with_sr/{id}/{id}.filtered.gtf", id=IDS),
+        expand("../pbmm2/{id}.dedup.mapped.cell.miser.corrected.filtered.shortread.inc.bam", id=IDS),
+        expand("../sqanti3_filter/rules_with_sr/{id}/{id}_SQANTI3_filter_report.pdf", id=IDS),
+        # expand("../sqanti3_filter/ml/{id}/{id}.filtered.gtf", id=IDS),
+        # expand("../seurat/{id}_ml/{id}.info.csv", id=IDS),
+        # expand("../seurat/{id}_rules/{id}.info.csv", id=IDS),
+
+# Prepare input for Sqanti3 QC - Convert collapsed GFF to GTF
+rule gff2gtf:
+    input:
+        gff = "../collapse/{id}.collapsed.gff"
+    output:
+        gtf = "../collapse/{id}.collapsed.gtf"
+    conda: "gffread_conda.yaml"
+    benchmark: "../benchmarks/{id}_gff2gtf.benchmark"
+    params:
+        log = "../logs/{id}_gff2gtf.log",
+    shell:
+        '''
+        gffread {input.gff} -T -o {output.gtf} 2> {params.log}
+        '''
+
+# Generate SQ3 compatible normalised counts from collapsed abundance output
+rule prepare_count:
+    input:
+        abund = "../collapse/{id}.collapsed.abundance.txt"
+    output:
+        fl_count = "../collapse/{id}.collapsed.abundance.sq3.txt"
+    conda: "python_conda.yaml"
+    benchmark: "../benchmarks/{id}_prepare_count.benchmark"
+    params:
+        log = "../logs/{id}_prepare_count.log",
+        wld = "{id}",
+    shell:
+        '''
+        ./gen_sq3_abund.py {input.abund} {params.wld}
+        '''
+
+# Perform classification and quality control on collapsed transcripts
+rule sqanti3_qc:
+    input:
+        gtf = "../collapse/{id}.collapsed.gtf",
+        fl_count = "../collapse/{id}.collapsed.abundance.sq3.txt",
+    output:
+        classification = "../sqanti3_qc_with_sr/{id}/{id}_classification.txt"
+    conda: "sqanti3_conda.yaml"
+    benchmark: "../benchmarks/{id}_sqanti3_qc_with_sr.benchmark"
+    params:
+        log = "../logs/{id}_sqanti3_qc_with_sr.log",
+        t = general_job_j,
+        # CHECK PRIOR TO RUNNING
+        cage_peak = "../ref/hg38_liftover_CAGE_peaks_phase1and2.sorted.bed",
+        polyA_motif = "../ref/polyA.list.txt",
+        polyA_sites = "../ref/polyASites.clusters.2.0.GRCh38.96.gencode.bed",
+        d = "../sqanti3_qc_with_sr/{id}",
+        o = "{id}",
+        ref_anno = anno_gtf,
+        ref_seq = ref_fa,
+        expression = "../kallisto/{id}_quant/abundance.tsv",
+        coverage = "../star_mapped_short_reads/{id}/{id}.SJ.out.tab",
+        sr_bam = "../star_mapped_short_reads/{id}/"
+    shell:
+        '''
+        python sqanti3-5.2.1/sqanti3_qc.py -t {params.t} \
+        -n 14 \
+        --CAGE_peak {params.cage_peak} \
+        --polyA_motif_list {params.polyA_motif} \
+        --polyA_peak {params.polyA_sites} \
+        --fl_count {input.fl_count} \
+        -e {params.expression} \
+        -c {params.coverage} \
+        --SR_bam {params.sr_bam} \
+        -d {params.d} \
+        -o {params.o} \
+        --report pdf \
+        {input.gtf} \
+        {params.ref_anno} \
+        {params.ref_seq} 2> {params.log}
+        '''
+
+# Filter transcripts to reduce false positives - SQANTI3 FILTER RULES
+# ADD MORE INFO ABOUT RULES RUN MODE
+rule sqanti3_filter_rules:
+    input:
+        classification = "../sqanti3_qc_with_sr/{id}/{id}_classification.txt"
+    output:
+        filtered = "../sqanti3_filter/rules_with_sr/{id}/{id}.filtered.gtf"
+    conda: "sqanti3_conda.yaml"
+    benchmark: "../benchmarks/{id}_sqanti3_filter_rules_with_sr.benchmark"
+    params:
+        log = "../logs/{id}_sqanti3_filter_rules_with_sr.log",
+        gtf = "../sqanti3_qc_with_sr/{id}/{id}_corrected.gtf",
+        json = "sqanti3-5.2.1/utilities/filter/filter_gene_level.json",
+        d = "../sqanti3_filter/rules_with_sr/{id}",
+        o = "{id}",
+    shell:
+        '''
+        python sqanti3-5.2.1/sqanti3_filter.py rules \
+        --gtf {params.gtf} \
+        -j {params.json} \
+        -d {params.d} \
+        -o {params.o} \
+        --skip_report \
+        {input.classification} 2> {params.log}
+        '''
+
+# Generate a report on filtering step
+rule gen_filter_report:
+    input:
+       filtered = "../sqanti3_filter/rules_with_sr/{id}/{id}.filtered.gtf"
+    output:
+        report = "../sqanti3_filter/rules_with_sr/{id}/{id}_SQANTI3_filter_report.pdf"
+    benchmark: "../benchmarks/{id}_gen_filter_report_with_sr.benchmark"
+    params:
+        log = "../logs/{id}_gen_filter_report_with_sr.log",
+        filter_dir = "../sqanti3_filter/rules_with_sr/{id}/",
+        wld = "{id}",
+    shell:
+        '''
+        ./gen_filter_report.sh {params.filter_dir} {params.wld} > {params.log} 2>&1
+        '''
+
+# Generate a reads list to use for filtering mapped bam
+rule gen_reads_list:
+    input:
+        filtered = "../sqanti3_filter/rules_with_sr/{id}/{id}.filtered.gtf"
+    output:
+        reads_list = "../pbmm2/{id}_read_names_with_sr.txt"
+    conda: "python_conda.yaml"
+    benchmark: "../benchmarks/{id}_gen_reads_list_with_sr.benchmark"
+    params:
+        log = "../logs/{id}_gen_reads_list_with_sr.log",
+        group = "../collapse/{id}.collapsed.group.txt",
+        inclusion = "../sqanti3_filter/rules_with_sr/{id}/{id}_inclusion-list.txt",
+        wld = "{id}",
+    shell:
+        '''
+        ./get_read_names.py {params.group} \
+        {params.inclusion} \
+        {params.wld} \
+        {output.reads_list} > {params.log} 2>&1
+        '''
+
+# Extract filtered reads from mapped bam cell file (filter mapped bam file based on filtered reads)
+rule extract_filtered_reads:
+    input:
+        reads_list = "../pbmm2/{id}_read_names_with_sr.txt"
+    output:
+        filtered_bam = "../pbmm2/{id}.dedup.mapped.cell.miser.corrected.filtered.shortread.inc.bam"
+    conda: "samtools_conda.yaml"
+    benchmark: "../benchmarks/{id}_extract_filtered_reads_with_sr.benchmark"
+    params:
+        log = "../logs/{id}_extract_filtered_reads_with_sr.log",
+        j = general_job_j,
+        bam = "../pbmm2/{id}.dedup.mapped.cell.miser.corrected.modified.sorted.bam",
+    shell:
+        '''
+        samtools view -@ {params.j} -h -b -N {input.reads_list} {params.bam} > {output.filtered_bam} 2> {params.log};
+        samtools index -@ {params.j} {output.filtered_bam}
+        '''
+
+# # Generate Seurat object output
+# rule make_seurat_rules_input:
+#     input:
+#         filtered = "../sqanti3_filter/rules/{id}/{id}.filtered.gtf"
+#     output:
+#         seurat = "../seurat/{id}_rules/{id}.info.csv"
+#     conda: "pbpigeon_conda.yaml"
+#     benchmark: "../benchmarks/{id}_make_seurat_rules.benchmark"
+#     params:
+#         log = "../logs/{id}_make_seurat_rules.log",
+#         log_level = "TRACE",
+#         j = general_job_j,
+#         filtered = "../sqanti3_filter/rules/{id}/{id}_RulesFilter_result_classification.txt",
+#         dedup = "../dedup/{id}.fltncc.sorted.dedup.fasta",
+#         group = "../collapse/{id}.collapsed.group.txt",
+#         out_prefix = "{id}",
+#         out_dir = "../seurat/{id}_rules",
+#     shell:
+#         '''
+#         pigeon make-seurat -j {params.j} \
+#         --log-file {params.log} \
+#         --log-level {params.log_level} \
+#         --dedup {params.dedup} \
+#         --group {params.group} \
+#         -o {params.out_prefix} \
+#         -d {params.out_dir} \
+#         {params.filtered}
+#         '''
+
+# # Rescue discarded but valid transcripts (rescue based filtered 'rules' output)
+# rule sqanti3_rescue_rules:
+#     input:
+#         filtered = "../sqanti3_filter/rules/{id}/{id}.filtered.gtf"
+#     output:
+#         placeholder = ""
+#     conda: "sqanti3_conda.yaml"
+#     benchmark: "../benchmarks/{id}_sqanti3_rescue_rules.benchmark"
+#     params:
+#         log = "../logs/{id}_sqanti3_rescue_rules.log",
+#         lr_isoform = "../sqanti3_qc/{id}/{id}_corrected.fasta",
+#         ref_anno = anno_gtf,
+#         ref_class = "",
+#     shell:
+#         '''
+#         python sqanti3-5.2.1/
+#         '''
+
+# Filter transcripts to reduce false positives - SQANTI3 FILTER ML
+# ADD MORE INFO ABOUT ML RUN MODE
+# rule sqanti3_filter_ml:
+#     input:
+#         classification = "../sqanti3_qc/{id}/{id}_classification.txt"
+#     output:
+#         filtered = "../sqanti3_filter/ml/{id}/{id}.filtered.gtf"
+#     conda: "sqanti3_conda.yaml"
+#     benchmark: "../benchmarks/{id}_sqanti3_filter_ml.benchmark"
+#     params:
+#         log = "../logs/{id}_sqanti3_filter_ml.log",
+#         gtf = "../sqanti3_qc/{id}/{id}_corrected.gtf",
+#         d = "../sqanti3_filter/ml/{id}",
+#         o = "{id}",
+#     shell:
+#         '''
+#         python sqanti3-5.2.1/sqanti3_filter.py ml \
+#         --gtf {params.gtf} \
+#         -d {params.d} \
+#         -o {params.o} \
+#         {input.classification} 2> {params.log}
+#         '''
+        
+# # Rescue discarded but valid transcripts (rescue based filtered 'ML' output)
+# rule sqanti3_rescue_ml:
+#     input:
+
+# # Generate Seurat object output
+# rule make_seurat_ml_input:
+#     input:
+#         filtered = "../sqanti3_filter/ml/{id}/{id}.filtered.gtf"
+#     output:
+#         seurat = "../seurat/{id}_ml/{id}.info.csv"
+#     conda: "pbpigeon_conda.yaml"
+#     benchmark: "../benchmarks/{id}_make_seurat_ml.benchmark"
+#     params:
+#         log = "../logs/{id}_make_seurat_ml.log",
+#         log_level = "TRACE",
+#         j = general_job_j,
+#         filtered = "../sqanti3_filter/ml/{id}/{id}_MLresult_classification.txt",
+#         dedup = "../dedup/{id}.fltncc.sorted.dedup.fasta",
+#         group = "../collapse/{id}.collapsed.group.txt",
+#         out_prefix = "{id}",
+#         out_dir = "../seurat/{id}_ml",
+#     shell:
+#         '''
+#         pigeon make-seurat -j {params.j} \
+#         --log-file {params.log} \
+#         --log-level {params.log_level} \
+#         --dedup {params.dedup} \
+#         --group {params.group} \
+#         -o {params.out_prefix} \
+#         -d {params.out_dir} \
+#         {params.filtered}
+#         '''
